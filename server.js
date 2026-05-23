@@ -4,6 +4,7 @@ const cron = require('node-cron');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const bodyParser = require('body-parser');
+const https = require('https');
 
 const app = express();
 app.use(bodyParser.json());
@@ -11,9 +12,19 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ========== CONFIGURE YOUR BOT TOKEN HERE ==========
 const BOT_TOKEN = process.env.BOT_TOKEN || '8289585896:AAGyh7-qToZFzXmnWrXb4aZmwROYjsjGzdc';
+const WEBHOOK_URL = process.env.WEBHOOK_URL || 'https://business-suite-reminder.onrender.com/';
 
-// Initialize bot
-const bot = new TelegramBot(BOT_TOKEN, { polling: true });
+// Initialize bot with webhook (NOT polling - to avoid conflicts)
+const bot = new TelegramBot(BOT_TOKEN);
+
+// Set webhook
+bot.setWebHook(WEBHOOK_URL + 'bot' + BOT_TOKEN);
+
+// Handle webhook updates
+app.post('/bot' + BOT_TOKEN, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
 
 // ========== DATABASE SETUP ==========
 const db = new sqlite3.Database('./reminders.db');
@@ -161,6 +172,7 @@ bot.onText(/\/test/, (msg) => {
   sendReminder(chatId, name, 'Test Reminder', '1 item', 'This is a test reminder');
 });
 
+// ========== FIX: Proper async handling for adding reminders ==========
 bot.on('message', (msg) => {
   if (msg.text && !msg.text.startsWith('/')) {
     const chatId = msg.chat.id;
@@ -173,24 +185,37 @@ bot.on('message', (msg) => {
       const notes = lines[3] || '';
       
       let added = 0;
+      let processed = 0;
+      const totalTimes = times.length;
+      
       times.forEach(time => {
         if (/^\d{1,2}:\d{2}$/.test(time)) {
           db.run(
             'INSERT INTO reminders (chat_id, user_name, reminder_name, reminder_time, details, notes) VALUES (?, ?, ?, ?, ?, ?)',
             [chatId, msg.from.first_name || 'User', reminderName, time, details, notes],
-            (err) => {
+            function(err) {
+              processed++;
               if (!err) added++;
+              
+              // Only send message after ALL times are processed
+              if (processed === totalTimes) {
+                bot.sendMessage(chatId, 
+                  `✅ Added ${added} reminder(s) for *${reminderName}*!\n\n` +
+                  `I will send you reminders at: ${times.join(', ')}`
+                , { parse_mode: 'Markdown' });
+              }
             }
           );
+        } else {
+          processed++;
+          if (processed === totalTimes) {
+            bot.sendMessage(chatId, 
+              `✅ Added ${added} reminder(s) for *${reminderName}*!\n\n` +
+              `I will send you reminders at: ${times.join(', ')}`
+            , { parse_mode: 'Markdown' });
+          }
         }
       });
-      
-      setTimeout(() => {
-        bot.sendMessage(chatId, 
-          `✅ Added ${added} reminder(s) for *${reminderName}*!\n\n` +
-          `I will send you reminders at: ${times.join(', ')}`
-        , { parse_mode: 'Markdown' });
-      }, 500);
     }
   }
 });
@@ -198,16 +223,19 @@ bot.on('message', (msg) => {
 function sendReminder(chatId, userName, reminderName, details, notes) {
   const message = `Hi ${userName}, it's time for your reminder. Please check: ${reminderName} now. ${details ? 'Details: ' + details + '. ' : ''}${notes ? notes + '. ' : ''}Have a great day!`;
   
-  bot.sendMessage(chatId, `📋 *Business Suite Reminder*\n\n⏰ Time to check your reminder!\n\n📌 *${reminderName}*\n${details ? '📋 Details: ' + details + '\n' : ''}${notes ? '📝 ' + notes + '\n' : ''}\nHave a great day! 🚀`, { parse_mode: 'Markdown' });
+  bot.sendMessage(chatId, `📋 *Business Suite Reminder*\n\n⏰ Time to check your reminder!\n\n📌 *${reminderName}*\n${details ? '📋 Details: ' + details + '\n' : ''}${notes ? '📝 ' + notes + '\n' : ''}Have a great day! 🚀`, { parse_mode: 'Markdown' });
   
   bot.sendMessage(chatId, `🔊 *${message}*`, { parse_mode: 'Markdown' });
 }
 
+// ========== FIX: Better cron with logging and self-ping ==========
 cron.schedule('* * * * *', () => {
   const now = new Date();
   const hours = String(now.getHours()).padStart(2, '0');
   const minutes = String(now.getMinutes()).padStart(2, '0');
   const currentTime = `${hours}:${minutes}`;
+  
+  console.log(`⏰ Checking reminders at ${currentTime}`);
   
   db.all(
     'SELECT * FROM reminders WHERE reminder_time = ? AND is_active = 1',
@@ -218,6 +246,8 @@ cron.schedule('* * * * *', () => {
         return;
       }
       
+      console.log(`Found ${rows.length} reminders for ${currentTime}`);
+      
       rows.forEach(row => {
         sendReminder(
           row.chat_id,
@@ -226,11 +256,25 @@ cron.schedule('* * * * *', () => {
           row.details,
           row.notes
         );
-        console.log(`Reminder sent to ${row.chat_id} for ${row.reminder_name} at ${currentTime}`);
+        console.log(`✅ Reminder sent to ${row.chat_id} for ${row.reminder_name} at ${currentTime}`);
       });
     }
   );
 });
+
+// ========== FIX: Self-ping to keep Render awake ==========
+function selfPing() {
+  const url = WEBHOOK_URL;
+  https.get(url, (res) => {
+    console.log(`🔄 Self-ping: ${res.statusCode}`);
+  }).on('error', (err) => {
+    console.error('Self-ping error:', err.message);
+  });
+}
+
+// Ping every 10 minutes to keep Render awake
+setInterval(selfPing, 10 * 60 * 1000);
+console.log('🔄 Self-ping started (every 10 minutes)');
 
 console.log('⏰ Cron scheduler started - checking every minute');
 
@@ -279,5 +323,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Business Suite Reminder running on http://localhost:${PORT}`);
   console.log(`📱 Open web app to manage reminders`);
-  console.log(`🤖 Telegram bot is polling for messages`);
+  console.log(`🤖 Telegram bot is using webhook`);
 });
