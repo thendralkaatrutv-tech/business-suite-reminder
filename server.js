@@ -30,13 +30,16 @@ app.post('/bot' + BOT_TOKEN, (req, res) => {
 // ========== MONGODB SETUP ==========
 let db;
 let remindersCollection;
+let useMongoDB = false;
 
 async function connectMongoDB() {
   try {
+    if (!MONGODB_URI) {
+      throw new Error('MONGODB_URI not set');
+    }
+    
     const client = new MongoClient(MONGODB_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-      serverSelectionTimeoutMS: 5000
+      serverSelectionTimeoutMS: 10000
     });
     
     await client.connect();
@@ -44,6 +47,7 @@ async function connectMongoDB() {
     
     db = client.db('reminders');
     remindersCollection = db.collection('reminders');
+    useMongoDB = true;
     
     // Create index for faster queries
     await remindersCollection.createIndex({ chat_id: 1, is_active: 1 });
@@ -53,18 +57,20 @@ async function connectMongoDB() {
   } catch (err) {
     console.error('❌ MongoDB connection error:', err.message);
     console.log('⚠️ Falling back to in-memory storage');
+    useMongoDB = false;
     
-    // Fallback: in-memory storage
+    // Fallback: in-memory storage with proper interface
+    const memoryData = [];
+    let nextId = 1;
+    
     remindersCollection = {
-      _data: [],
-      _id: 1,
       async insertOne(doc) {
-        doc._id = this._id++;
-        this._data.push(doc);
+        doc._id = nextId++;
+        memoryData.push(doc);
         return { insertedId: doc._id };
       },
-      async find(query) {
-        let results = this._data.filter(d => {
+      find(query) {
+        let results = memoryData.filter(d => {
           for (let key in query) {
             if (d[key] !== query[key]) return false;
           }
@@ -76,7 +82,7 @@ async function connectMongoDB() {
         };
       },
       async updateOne(filter, update) {
-        const doc = this._data.find(d => {
+        const doc = memoryData.find(d => {
           for (let key in filter) {
             if (d[key] !== filter[key]) return false;
           }
@@ -287,7 +293,7 @@ cron.schedule('* * * * *', async () => {
   const minutes = String(now.getMinutes()).padStart(2, '0');
   const currentTime = `${hours}:${minutes}`;
   
-  console.log(`⏰ Checking reminders at ${currentTime}`);
+  console.log(`⏰ Checking reminders at ${currentTime} (MongoDB: ${useMongoDB})`);
   
   try {
     const rows = await remindersCollection.find({ 
@@ -381,10 +387,17 @@ app.post('/api/reminders', async (req, res) => {
 
 app.delete('/api/reminders/:id', async (req, res) => {
   try {
-    await remindersCollection.updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $set: { is_active: 0 } }
-    );
+    if (useMongoDB) {
+      await remindersCollection.updateOne(
+        { _id: new ObjectId(req.params.id) },
+        { $set: { is_active: 0 } }
+      );
+    } else {
+      await remindersCollection.updateOne(
+        { _id: parseInt(req.params.id) },
+        { $set: { is_active: 0 } }
+      );
+    }
     res.json({ success: true });
   } catch (err) {
     console.error('API delete error:', err);
@@ -397,5 +410,5 @@ app.listen(PORT, () => {
   console.log(`🚀 Business Suite Reminder running on http://localhost:${PORT}`);
   console.log(`📱 Open web app to manage reminders`);
   console.log(`🤖 Telegram bot is using webhook`);
-  console.log(`💾 Database: MongoDB Atlas`);
+  console.log(`💾 Database: ${useMongoDB ? 'MongoDB Atlas' : 'In-Memory (fallback)'}`);
 });
