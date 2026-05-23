@@ -27,25 +27,66 @@ app.post('/bot' + BOT_TOKEN, (req, res) => {
   res.sendStatus(200);
 });
 
-// ========== MONGODB SETUP ==========
-let db;
-let remindersCollection;
+// ========== IN-MEMORY STORAGE (default, works immediately) ==========
+const memoryData = [];
+let nextId = 1;
+
+const memoryCollection = {
+  async insertOne(doc) {
+    doc._id = nextId++;
+    memoryData.push(doc);
+    return { insertedId: doc._id };
+  },
+  find(query) {
+    let results = memoryData.filter(d => {
+      for (let key in query) {
+        if (d[key] !== query[key]) return false;
+      }
+      return true;
+    });
+    return {
+      toArray: async () => results,
+      forEach: async (cb) => results.forEach(cb)
+    };
+  },
+  async updateOne(filter, update) {
+    const doc = memoryData.find(d => {
+      for (let key in filter) {
+        if (d[key] !== filter[key]) return false;
+      }
+      return true;
+    });
+    if (doc && update.$set) {
+      Object.assign(doc, update.$set);
+    }
+    return { modifiedCount: doc ? 1 : 0 };
+  },
+  async createIndex() { return; }
+};
+
+// Start with in-memory, try MongoDB later
+let remindersCollection = memoryCollection;
 let useMongoDB = false;
 
+// ========== TRY MONGODB CONNECTION ==========
 async function connectMongoDB() {
   try {
     if (!MONGODB_URI) {
-      throw new Error('MONGODB_URI not set');
+      console.log('⚠️ MONGODB_URI not set, using in-memory storage');
+      return;
     }
     
+    console.log('🔌 Trying to connect to MongoDB Atlas...');
+    
     const client = new MongoClient(MONGODB_URI, {
-      serverSelectionTimeoutMS: 10000
+      serverSelectionTimeoutMS: 15000,
+      tls: true
     });
     
     await client.connect();
     console.log('✅ Connected to MongoDB Atlas');
     
-    db = client.db('reminders');
+    const db = client.db('reminders');
     remindersCollection = db.collection('reminders');
     useMongoDB = true;
     
@@ -56,48 +97,12 @@ async function connectMongoDB() {
     console.log('✅ MongoDB collections ready');
   } catch (err) {
     console.error('❌ MongoDB connection error:', err.message);
-    console.log('⚠️ Falling back to in-memory storage');
-    useMongoDB = false;
-    
-    // Fallback: in-memory storage with proper interface
-    const memoryData = [];
-    let nextId = 1;
-    
-    remindersCollection = {
-      async insertOne(doc) {
-        doc._id = nextId++;
-        memoryData.push(doc);
-        return { insertedId: doc._id };
-      },
-      find(query) {
-        let results = memoryData.filter(d => {
-          for (let key in query) {
-            if (d[key] !== query[key]) return false;
-          }
-          return true;
-        });
-        return {
-          toArray: async () => results,
-          forEach: async (cb) => results.forEach(cb)
-        };
-      },
-      async updateOne(filter, update) {
-        const doc = memoryData.find(d => {
-          for (let key in filter) {
-            if (d[key] !== filter[key]) return false;
-          }
-          return true;
-        });
-        if (doc && update.$set) {
-          Object.assign(doc, update.$set);
-        }
-        return { modifiedCount: doc ? 1 : 0 };
-      },
-      async createIndex() { return; }
-    };
+    console.log('⚠️ Using in-memory storage (reminders will work but reset on restart)');
+    // Keep in-memory collection
   }
 }
 
+// Connect to MongoDB (non-blocking)
 connectMongoDB();
 
 // ========== TELEGRAM BOT COMMANDS ==========
@@ -235,7 +240,7 @@ bot.onText(/\/test/, (msg) => {
   sendReminder(chatId, name, 'Test Reminder', '1 item', 'This is a test reminder');
 });
 
-// ========== FIX: Proper async handling for adding reminders ==========
+// ========== ADD REMINDER FROM TELEGRAM ==========
 bot.on('message', async (msg) => {
   if (msg.text && !msg.text.startsWith('/')) {
     const chatId = msg.chat.id;
@@ -286,7 +291,7 @@ function sendReminder(chatId, userName, reminderName, details, notes) {
   bot.sendMessage(chatId, `🔊 *${message}*`, { parse_mode: 'Markdown' });
 }
 
-// ========== FIX: Better cron with logging and self-ping ==========
+// ========== CRON JOB ==========
 cron.schedule('* * * * *', async () => {
   const now = new Date();
   const hours = String(now.getHours()).padStart(2, '0');
@@ -318,7 +323,7 @@ cron.schedule('* * * * *', async () => {
   }
 });
 
-// ========== FIX: Self-ping to keep Render awake ==========
+// ========== SELF-PING ==========
 function selfPing() {
   const url = WEBHOOK_URL;
   https.get(url, (res) => {
@@ -328,10 +333,8 @@ function selfPing() {
   });
 }
 
-// Ping every 10 minutes to keep Render awake
 setInterval(selfPing, 10 * 60 * 1000);
 console.log('🔄 Self-ping started (every 10 minutes)');
-
 console.log('⏰ Cron scheduler started - checking every minute');
 
 // ========== API ROUTES ==========
@@ -345,7 +348,6 @@ app.get('/api/reminders/:chatId', async (req, res) => {
       is_active: 1 
     }).toArray();
     
-    // Format for frontend compatibility
     const formatted = rows.map(row => ({
       id: row._id,
       chat_id: row.chat_id,
@@ -410,5 +412,5 @@ app.listen(PORT, () => {
   console.log(`🚀 Business Suite Reminder running on http://localhost:${PORT}`);
   console.log(`📱 Open web app to manage reminders`);
   console.log(`🤖 Telegram bot is using webhook`);
-  console.log(`💾 Database: ${useMongoDB ? 'MongoDB Atlas' : 'In-Memory (fallback)'}`);
+  console.log(`💾 Database: ${useMongoDB ? 'MongoDB Atlas' : 'In-Memory (reminders reset on restart)'}`);
 });
