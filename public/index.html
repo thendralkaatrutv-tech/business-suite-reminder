@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Business Suite Reminder</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+        }
+        .container {
+            width: 100%;
+            max-width: 500px;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            font-size: 2.2em;
+            color: #00d4ff;
+            margin-bottom: 10px;
+        }
+        .header p {
+            color: #888;
+        }
+        .telegram-badge {
+            background: linear-gradient(135deg, #0088cc, #00d4ff);
+            color: #fff;
+            padding: 15px 20px;
+            border-radius: 15px;
+            text-align: center;
+            margin-bottom: 25px;
+            font-weight: bold;
+        }
+        .card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .card h2 {
+            color: #00d4ff;
+            margin-bottom: 20px;
+            font-size: 1.3em;
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #aaa;
+            font-size: 0.9em;
+        }
+        .input-group input, .input-group select {
+            width: 100%;
+            padding: 15px 20px;
+            border: 2px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            background: rgba(255,255,255,0.05);
+            color: #fff;
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        .input-group input:focus, .input-group select:focus {
+            border-color: #00d4ff;
+        }
+        .input-group input::placeholder {
+            color: #666;
+        }
+        .time-inputs {
+            display: flex;
+            gap: 10px;
+        }
+        .time-inputs select {
+            flex: 1;
+        }
+        .btn {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 12px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #00d4ff, #0099cc);
+            color: #fff;
+            margin-bottom: 10px;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(0,212,255,0.3);
+        }
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        .reminder-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .reminder-item {
+            background: rgba(255,255,255,0.03);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s;
+        }
+        .reminder-item:hover {
+            background: rgba(0,212,255,0.1);
+        }
+        .reminder-info h3 {
+            color: #00d4ff;
+            margin-bottom: 5px;
+        }
+        .reminder-info p {
+            color: #888;
+            font-size: 0.9em;
+        }
+        .reminder-time {
+            background: rgba(0,212,255,0.2);
+            color: #00d4ff;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+        .delete-btn {
+            background: rgba(255,0,0,0.2);
+            color: #ff4444;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+        .delete-btn:hover {
+            background: rgba(255,0,0,0.3);
+        }
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+        }
+        .empty-state .icon {
+            font-size: 3em;
+            margin-bottom: 15px;
+        }
+        .instructions {
+            background: rgba(0,212,255,0.05);
+            border: 1px solid rgba(0,212,255,0.2);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .instructions h3 {
+            color: #00d4ff;
+            margin-bottom: 15px;
+        }
+        .instructions ol {
+            padding-left: 20px;
+            color: #aaa;
+        }
+        .instructions li {
+            margin-bottom: 10px;
+            line-height: 1.5;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(255,255,255,0.05);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(0,212,255,0.3);
+            border-radius: 3px;
+        }
+        @media (max-width: 480px) {
+            .container {
+                padding: 10px;
+            }
+            .card {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📋 Business Suite Reminder</h1>
+            <p>Telegram Reminder Bot</p>
+        </div>
+        
+        <div class="telegram-badge">
+            📱 Connect with Telegram Bot
+        </div>
+        
+        <div class="instructions">
+            <h3>🚀 How to Start</h3>
+            <ol>
+                <li>Open Telegram app on your phone</li>
+                <li>Search for <strong>@OrghubBusinessSuiteBot</strong></li>
+                <li>Send: <code>/start</code></li>
+                <li>Your Chat ID will appear below</li>
+            </ol>
+        </div>
+        
+        <div class="card">
+            <h2>➕ Add New Reminder</h2>
+            
+            <div class="input-group">
+                <label>Your Telegram Chat ID</label>
+                <input type="text" id="chatId" placeholder="Enter your Chat ID (e.g., 8389882503)">
+            </div>
+            
+            <div class="input-group">
+                <label>Reminder Name</label>
+                <input type="text" id="reminderName" placeholder="e.g., Meeting, Call Client, Check Email">
+            </div>
+            
+            <div class="input-group">
+                <label>Reminder Time</label>
+                <div class="time-inputs">
+                    <select id="hour">
+                        <option value="">Hour</option>
+                        <option value="00">00</option>
+                        <option value="01">01</option>
+                        <option value="02">02</option>
+                        <option value="03">03</option>
+                        <option value="04">04</option>
+                        <option value="05">05</option>
+                        <option value="06">06</option>
+                        <option value="07">07</option>
+                        <option value="08" selected>08</option>
+                        <option value="09">09</option>
+                        <option value="10">10</option>
+                        <option value="11">11</option>
+                        <option value="12">12</option>
+                        <option value="13">13</option>
+                        <option value="14">14</option>
+                        <option value="15">15</option>
+                        <option value="16">16</option>
+                        <option value="17">17</option>
+                        <option value="18">18</option>
+                        <option value="19">19</option>
+                        <option value="20">20</option>
+                        <option value="21">21</option>
+                        <option value="22">22</option>
+                        <option value="23">23</option>
+                    </select>
+                    <select id="minute">
+                        <option value="">Min</option>
+                        <option value="00" selected>00</option>
+                        <option value="15">15</option>
+                        <option value="30">30</option>
+                        <option value="45">45</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="input-group">
+                <label>Details (optional)</label>
+                <input type="text" id="details" placeholder="e.g., Zoom call link, Location">
+            </div>
+            
+            <div class="input-group">
+                <label>Notes (optional)</label>
+                <input type="text" id="notes" placeholder="e.g., Prepare slides before call">
+            </div>
+            
+            <button class="btn btn-primary" id="addBtn">➕ Add Reminder</button>
+            <button class="btn btn-secondary" id="testBtn">🧪 Send Test Now</button>
+        </div>
+        
+        <div class="card">
+            <h2>📋 Your Reminders</h2>
+            <div class="reminder-list" id="reminderList">
+                <div class="empty-state">
+                    <div class="icon">📭</div>
+                    <p>No reminders yet. Add one above!</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="app.js"></script>
+</body>
+</html>
